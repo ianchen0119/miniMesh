@@ -111,7 +111,9 @@ func (d *Daemon) setupAPI() {
 		s := d.status
 		d.mu.RUnlock()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(s) //nolint:errcheck
+		if err := json.NewEncoder(w).Encode(s); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -160,7 +162,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}()
 
 	<-ctx.Done()
-	d.apiServer.Shutdown(context.Background()) //nolint:errcheck
+	if err := d.apiServer.Shutdown(context.Background()); err != nil {
+		log.Printf("api shutdown: %v", err)
+	}
 	os.Remove(APISockPath)
 	wg.Wait()
 	return nil

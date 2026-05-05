@@ -7,11 +7,11 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	meshv1 "github.com/ianchen0119/miniMesh/operator/api/v1alpha1"
@@ -101,21 +101,16 @@ func (r *MeshCertificateReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			Name:      secretName,
 			Namespace: mc.Spec.Namespace,
 		},
-		Type: corev1.SecretTypeTLS,
-		Data: map[string][]byte{
+	}
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
+		secret.Type = corev1.SecretTypeTLS
+		secret.Data = map[string][]byte{
 			corev1.TLSCertKey:       bundle.CertPEM,
 			corev1.TLSPrivateKeyKey: bundle.KeyPEM,
-		},
-	}
-
-	if err := r.Create(ctx, secret); err != nil {
-		if !errors.IsAlreadyExists(err) {
-			return ctrl.Result{}, fmt.Errorf("create secret: %w", err)
 		}
-		// Update the existing secret.
-		if err := r.Update(ctx, secret); err != nil {
-			return ctrl.Result{}, fmt.Errorf("update secret: %w", err)
-		}
+		return nil
+	}); err != nil {
+		return ctrl.Result{}, fmt.Errorf("create/update secret: %w", err)
 	}
 
 	mc.Status.Ready = true

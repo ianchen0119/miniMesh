@@ -65,7 +65,9 @@ func originalDst(conn net.Conn) (net.IP, uint16, error) {
 func pipe(ctx context.Context, a, b net.Conn) {
 	done := make(chan struct{}, 2)
 	cp := func(dst, src net.Conn) {
-		io.Copy(dst, src) //nolint:errcheck
+		if _, err := io.Copy(dst, src); err != nil {
+			log.Printf("pipe copy: %v", err)
+		}
 		done <- struct{}{}
 	}
 	go cp(a, b)
@@ -74,8 +76,12 @@ func pipe(ctx context.Context, a, b net.Conn) {
 	case <-ctx.Done():
 	case <-done:
 	}
-	a.Close()
-	b.Close()
+	if err := a.Close(); err != nil {
+		log.Printf("pipe close a: %v", err)
+	}
+	if err := b.Close(); err != nil {
+		log.Printf("pipe close b: %v", err)
+	}
 }
 
 // --------------------------------------------------------------------
