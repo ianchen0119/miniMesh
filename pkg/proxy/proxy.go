@@ -17,6 +17,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -60,12 +61,25 @@ func originalDst(conn net.Conn) (net.IP, uint16, error) {
 	return net.IP(sa.Addr[:]), binary.BigEndian.Uint16(sa.Port[:]), nil
 }
 
+// isClosedConnErr reports whether err is an expected connection-close error
+// that occurs naturally during normal bidirectional pipe teardown.
+func isClosedConnErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "use of closed network connection") ||
+		strings.Contains(s, "broken pipe") ||
+		strings.Contains(s, "connection reset by peer") ||
+		strings.Contains(s, "EOF")
+}
+
 // pipe copies data between a and b concurrently until one side closes or ctx
 // is cancelled.
 func pipe(ctx context.Context, a, b net.Conn) {
 	done := make(chan struct{}, 2)
 	cp := func(dst, src net.Conn) {
-		if _, err := io.Copy(dst, src); err != nil {
+		if _, err := io.Copy(dst, src); err != nil && !isClosedConnErr(err) {
 			log.Printf("pipe copy: %v", err)
 		}
 		done <- struct{}{}
@@ -76,10 +90,10 @@ func pipe(ctx context.Context, a, b net.Conn) {
 	case <-ctx.Done():
 	case <-done:
 	}
-	if err := a.Close(); err != nil {
+	if err := a.Close(); err != nil && !isClosedConnErr(err) {
 		log.Printf("pipe close a: %v", err)
 	}
-	if err := b.Close(); err != nil {
+	if err := b.Close(); err != nil && !isClosedConnErr(err) {
 		log.Printf("pipe close b: %v", err)
 	}
 }
@@ -93,21 +107,30 @@ type Proxy struct {
 	listenAddr string
 	nodePort   string
 	localCIDR  *net.IPNet
+	svcCIDR    *net.IPNet // optional; nil if not configured
 	serverTLS  *tls.Config
 	clientTLS  *tls.Config
 	relayPath  string // Unix socket path for the intra-node relay
 }
 
 // New creates a Proxy.
-func New(listenAddr, nodePort, podCIDR, relayPath string, serverTLS, clientTLS *tls.Config) (*Proxy, error) {
+func New(listenAddr, nodePort, podCIDR, svcCIDR, relayPath string, serverTLS, clientTLS *tls.Config) (*Proxy, error) {
 	_, localNet, err := net.ParseCIDR(podCIDR)
 	if err != nil {
 		return nil, fmt.Errorf("parse pod CIDR %q: %w", podCIDR, err)
+	}
+	var svcNet *net.IPNet
+	if svcCIDR != "" {
+		_, svcNet, err = net.ParseCIDR(svcCIDR)
+		if err != nil {
+			return nil, fmt.Errorf("parse svc CIDR %q: %w", svcCIDR, err)
+		}
 	}
 	return &Proxy{
 		listenAddr: listenAddr,
 		nodePort:   nodePort,
 		localCIDR:  localNet,
+		svcCIDR:    svcNet,
 		serverTLS:  serverTLS,
 		clientTLS:  clientTLS,
 		relayPath:  relayPath,
@@ -116,7 +139,10 @@ func New(listenAddr, nodePort, podCIDR, relayPath string, serverTLS, clientTLS *
 
 // Serve starts accepting connections until ctx is done.
 func (p *Proxy) Serve(ctx context.Context) error {
-	ln, err := net.Listen("tcp", p.listenAddr)
+	// Use tcp4 explicitly: iptables DNAT redirects to 127.0.0.1 (IPv4). A tcp6
+	// dual-stack socket would also work IF IPV6_V6ONLY=0, but forcing tcp4 is
+	// unambiguous and avoids environment-specific surprises.
+	ln, err := net.Listen("tcp4", p.listenAddr)
 	if err != nil {
 		return err
 	}
@@ -149,14 +175,24 @@ func (p *Proxy) handle(ctx context.Context, conn net.Conn) {
 	log.Printf("proxy: %s -> %s:%d", conn.RemoteAddr(), dstIP, dstPort)
 
 	var upstream net.Conn
-	if p.localCIDR.Contains(dstIP) {
-		// Same node: relay via Unix socket with mTLS.
+	switch {
+	case p.localCIDR.Contains(dstIP):
+		// Same-node pod IP: relay via Unix socket with mTLS.
 		upstream, err = dialRelay(p.relayPath, p.clientTLS, dstIP, dstPort)
-	} else {
-		// Different node: mTLS TCP tunnel to remote daemon.
-		upstream, err = tls.Dial("tcp",
-			fmt.Sprintf("%s:%s", dstIP, p.nodePort),
-			p.clientTLS)
+	case p.svcCIDR != nil && p.svcCIDR.Contains(dstIP):
+		// Service ClusterIP: route through the Relay too. The Relay then does
+		// net.Dial(ClusterIP:port), which traverses the host OUTPUT chain where
+		// kube-proxy's KUBE-SERVICES DNATs it to a real backend pod. Net effect:
+		// the pod→service hop gets the same Proxy↔Relay mTLS as pod→pod, and
+		// kube-proxy still owns service load-balancing.
+		upstream, err = dialRelay(p.relayPath, p.clientTLS, dstIP, dstPort)
+	default:
+		// External IP / off-cluster destination. Plain TCP passthrough –
+		// the remote endpoint isn't part of the mesh so mTLS would fail.
+		//
+		// TODO: for multi-node mesh, look up remote pod CIDRs from the K8s
+		// API and route those via tls.Dial to the remote daemon's NodePort.
+		upstream, err = net.Dial("tcp", fmt.Sprintf("%s:%d", dstIP, dstPort))
 	}
 	if err != nil {
 		log.Printf("proxy: upstream: %v", err)

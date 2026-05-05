@@ -30,6 +30,7 @@ const (
 type Config struct {
 	NodeName  string
 	PodCIDR   string
+	SvcCIDR   string // Kubernetes Service ClusterIP range (e.g. 10.152.183.0/24 on microk8s)
 	NodeAddr  string
 	NodePort  string
 	DaemonUID string // UID of daemon process (skipped in iptables)
@@ -40,6 +41,7 @@ type Status struct {
 	NodeName  string    `json:"nodeName"`
 	StartTime time.Time `json:"startTime"`
 	PodCIDR   string    `json:"podCIDR"`
+	SvcCIDR   string    `json:"svcCIDR"`
 	NodeAddr  string    `json:"nodeAddr"`
 }
 
@@ -75,6 +77,7 @@ func New(cfg Config) (*Daemon, error) {
 		":"+iptables.ProxyPort,
 		cfg.NodePort,
 		cfg.PodCIDR,
+		cfg.SvcCIDR,
 		relaySock,
 		serverTLS,
 		clientTLS,
@@ -97,6 +100,7 @@ func New(cfg Config) (*Daemon, error) {
 			NodeName:  cfg.NodeName,
 			StartTime: time.Now(),
 			PodCIDR:   cfg.PodCIDR,
+			SvcCIDR:   cfg.SvcCIDR,
 			NodeAddr:  cfg.NodeAddr,
 		},
 	}

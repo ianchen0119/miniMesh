@@ -73,8 +73,18 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            # microk8s default Service CIDR. Override for other distros
+            # (kubeadm: 10.96.0.0/12, kind: 10.96.0.0/16, GKE: 34.118.224.0/20).
+            - name: SVC_CIDR
+              value: "10.152.183.0/24"
+            # Optional: pin POD_CIDR explicitly to skip K8s-API auto-detection.
+            # - name: POD_CIDR
+            #   value: "10.1.0.0/16"
           args:
-            - --pod-cidr=$(POD_CIDR)
             - --node-addr=$(NODE_IP)
             - --daemon-uid=1337
           envFrom: []

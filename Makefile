@@ -17,6 +17,21 @@ docker-push:
 	docker push $(REGISTRY)/daemon:$(TAG)
 	docker push $(REGISTRY)/operator:$(TAG)
 
+.PHONY: microk8s-deploy
+microk8s-deploy:
+	docker save $(REGISTRY)/daemon:$(TAG) -o daemon.tar
+	docker save $(REGISTRY)/operator:$(TAG) -o operator.tar
+	microk8s.ctr image import daemon.tar
+	microk8s.ctr image import operator.tar
+	rm daemon.tar operator.tar
+
+.PHONY: rollout
+rollout:
+	kubectl rollout restart daemonset/minimesh-daemon -n kube-system
+	kubectl rollout status daemonset/minimesh-daemon -n kube-system
+	kubectl rollout restart deployment/minimesh-operator -n kube-system
+	kubectl rollout status deployment/minimesh-operator -n kube-system
+
 .PHONY: deploy
 deploy:
 	kubectl apply -f deploy/crds/crds.yaml
