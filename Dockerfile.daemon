@@ -1,0 +1,9 @@
+FROM golang:1.21-alpine AS builder
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -o /bin/minimesh-daemon ./cmd/daemon
+
+FROM alpine:3.19
+RUN apk add --no-cache iptables
+COPY --from=builder /bin/minimesh-daemon /usr/local/bin/
+ENTRYPOINT ["minimesh-daemon"]

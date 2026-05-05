@@ -1,0 +1,72 @@
+---
+# ServiceAccount for the operator Deployment
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minimesh-operator
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: minimesh-operator
+rules:
+  - apiGroups: [mesh.minimesh.io]
+    resources: [meshpolicies, meshcertificates]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [mesh.minimesh.io]
+    resources: [meshpolicies/status, meshcertificates/status]
+    verbs: [update, patch]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: minimesh-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: minimesh-operator
+subjects:
+  - kind: ServiceAccount
+    name: minimesh-operator
+    namespace: kube-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minimesh-operator
+  namespace: kube-system
+  labels:
+    app: minimesh-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minimesh-operator
+  template:
+    metadata:
+      labels:
+        app: minimesh-operator
+    spec:
+      serviceAccountName: minimesh-operator
+      containers:
+        - name: operator
+          image: minimesh/operator:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --metrics-bind-address=:8080
+            - --health-probe-bind-address=:8081
+          ports:
+            - containerPort: 8080
+              name: metrics
+            - containerPort: 8081
+              name: health
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10

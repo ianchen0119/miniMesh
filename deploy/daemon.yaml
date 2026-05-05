@@ -1,0 +1,87 @@
+---
+# ServiceAccount for the daemon DaemonSet
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minimesh-daemon
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: minimesh-daemon
+rules:
+  - apiGroups: [""]
+    resources: [pods, nodes]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: minimesh-daemon
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: minimesh-daemon
+subjects:
+  - kind: ServiceAccount
+    name: minimesh-daemon
+    namespace: kube-system
+---
+# DaemonSet – one daemon per node (ambient-style, no sidecars)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: minimesh-daemon
+  namespace: kube-system
+  labels:
+    app: minimesh-daemon
+spec:
+  selector:
+    matchLabels:
+      app: minimesh-daemon
+  template:
+    metadata:
+      labels:
+        app: minimesh-daemon
+    spec:
+      serviceAccountName: minimesh-daemon
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+      initContainers:
+        - name: install-cni
+          image: busybox
+          command: [sh, -c, "mkdir -p /run/minimesh"]
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: run
+              mountPath: /run
+      containers:
+        - name: daemon
+          image: minimesh/daemon:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities:
+              add: [NET_ADMIN, SYS_ADMIN]
+            privileged: true
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          args:
+            - --pod-cidr=$(POD_CIDR)
+            - --node-addr=$(NODE_IP)
+            - --daemon-uid=1337
+          envFrom: []
+          volumeMounts:
+            - name: run
+              mountPath: /run
+      volumes:
+        - name: run
+          hostPath:
+            path: /run
