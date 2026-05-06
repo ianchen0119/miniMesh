@@ -1,0 +1,88 @@
+---
+# Demo namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+---
+# Demo server: nginx（被呼叫方）
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server
+  namespace: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: server
+  template:
+    metadata:
+      labels:
+        app: server
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: server
+  namespace: production
+spec:
+  selector:
+    app: server
+  ports:
+    - port: 80
+      targetPort: 80
+---
+# Demo client: curl pod（發起方）
+# 用法：kubectl exec -n production client -- curl -s http://server/
+#       觀察 minimesh-daemon log 確認流量有經過 mTLS relay
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client
+  namespace: production
+  labels:
+    app: client
+spec:
+  containers:
+    - name: curl
+      image: curlimages/curl:latest
+      command: ["sleep", "infinity"]
+  restartPolicy: Never
+---
+# Example: enforce strict mTLS for all pods in the "production" namespace
+apiVersion: mesh.minimesh.io/v1alpha1
+kind: MeshPolicy
+metadata:
+  name: strict-mtls
+  namespace: production
+spec:
+  mtlsMode: STRICT
+---
+# Example: permissive mTLS for a specific app
+apiVersion: mesh.minimesh.io/v1alpha1
+kind: MeshPolicy
+metadata:
+  name: permissive-frontend
+  namespace: production
+spec:
+  mtlsMode: PERMISSIVE
+  selector:
+    app: frontend
+---
+# Example: request a managed certificate for the "payments" service
+apiVersion: mesh.minimesh.io/v1alpha1
+kind: MeshCertificate
+metadata:
+  name: payments-cert
+  namespace: production
+spec:
+  serviceName: payments
+  namespace: production
+  ttl: "24h"

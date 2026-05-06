@@ -1,0 +1,103 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: meshpolicies.mesh.minimesh.io
+spec:
+  group: mesh.minimesh.io
+  names:
+    kind: MeshPolicy
+    listKind: MeshPolicyList
+    plural: meshpolicies
+    singular: meshpolicy
+    shortNames: ["mp"]
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: MTLSMode
+          type: string
+          jsonPath: .spec.mtlsMode
+        - name: Ready
+          type: boolean
+          jsonPath: .status.ready
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                mtlsMode:
+                  type: string
+                  enum: [STRICT, PERMISSIVE, DISABLE]
+                  default: STRICT
+                selector:
+                  type: object
+                  additionalProperties:
+                    type: string
+            status:
+              type: object
+              properties:
+                ready:
+                  type: boolean
+                phase:
+                  type: string
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: meshcertificates.mesh.minimesh.io
+spec:
+  group: mesh.minimesh.io
+  names:
+    kind: MeshCertificate
+    listKind: MeshCertificateList
+    plural: meshcertificates
+    singular: meshcertificate
+    shortNames: ["mcert"]
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Service
+          type: string
+          jsonPath: .spec.serviceName
+        - name: Ready
+          type: boolean
+          jsonPath: .status.ready
+        - name: Expires
+          type: string
+          jsonPath: .status.expiresAt
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [serviceName, namespace]
+              properties:
+                serviceName:
+                  type: string
+                namespace:
+                  type: string
+                ttl:
+                  type: string
+                  default: "24h"
+            status:
+              type: object
+              properties:
+                certSecretRef:
+                  type: string
+                expiresAt:
+                  type: string
+                ready:
+                  type: boolean

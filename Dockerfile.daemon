@@ -1,0 +1,12 @@
+FROM golang:1.21-alpine AS builder
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -o /bin/minimesh-daemon ./cmd/daemon
+
+FROM alpine:3.19
+RUN apk add --no-cache iptables iptables-legacy \
+ && ln -sf /sbin/xtables-legacy-multi /sbin/iptables \
+ && ln -sf /sbin/xtables-legacy-multi /sbin/iptables-save \
+ && ln -sf /sbin/xtables-legacy-multi /sbin/iptables-restore
+COPY --from=builder /bin/minimesh-daemon /usr/local/bin/
+ENTRYPOINT ["minimesh-daemon"]
