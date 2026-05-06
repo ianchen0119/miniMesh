@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ianchen0119/miniMesh/pkg/daemon"
-	"github.com/ianchen0119/miniMesh/pkg/observability"
 )
 
 // apiClient returns an *http.Client that connects via the daemon Unix socket.
@@ -87,27 +86,6 @@ func main() {
 			return nil
 		},
 	})
-
-	// ── observe ───────────────────────────────────────────────────────────
-	var pwruArgs []string
-	observeCmd := &cobra.Command{
-		Use:   "observe",
-		Short: "Live packet trace using pwru (requires root and pwru in PATH)",
-		Long: `Streams real-time kernel-level packet traces via Cilium's pwru tool.
-pwru must be installed separately (https://github.com/cilium/pwru).
-
-Examples:
-  meshctl observe -- --filter-dst-ip 10.244.0.5
-  meshctl observe -- --filter-src-ip 10.244.0.3 --output-tuple`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			// Extra positional args after "--" are forwarded to pwru.
-			all := append(pwruArgs, args...)
-			return observability.PWRU(cmd.Context(), os.Stdout, all...)
-		},
-	}
-	observeCmd.Flags().StringArrayVar(&pwruArgs, "pwru-args", nil,
-		"Additional arguments forwarded to pwru")
-	root.AddCommand(observeCmd)
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)

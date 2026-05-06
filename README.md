@@ -1,3 +1,90 @@
+# MiniMesh
+
+A minimal Service Mesh implementation in Go (~600 lines), inspired by Istio's Ambient Mesh model.
+
+## Architecture
+
+```
+┌─────────────────────────── Node ───────────────────────────────────┐
+│                                                                     │
+│  ┌─────────┐  TCP   ┌─────────────────────────────────────────┐    │
+│  │  Pod A  │───────▶│        minimesh-daemon (:15001)          │    │
+│  └─────────┘        │                                           │    │
+│                     │  originalDst? podCIDR / svcCIDR / other? │    │
+│                     │       │                   │               │    │
+│                     │  ┌────▼──────────┐  ┌────▼────────────┐  │    │
+│                     │  │ Unix socket   │  │ TCP mTLS        │  │    │
+│                     │  │ relay (mTLS)  │  │ to remote node  │  │    │
+│                     │  │ relay.sock    │  │ :15000 (TODO)   │  │    │
+│                     │  └──────┬────────┘  └─────────────────┘  │    │
+│  ┌─────────┐  TCP   │         │                                 │    │
+│  │  Pod B  │◀───────┼─────────┘                                 │    │
+│  └─────────┘        │                                           │    │
+│                     └─────────────────────────────────────────┘    │
+│  API sock: /run/minimesh/api.sock  (HTTP over Unix socket)          │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Key design decisions
+
+| Requirement | Implementation |
+|---|---|
+| No sidecar containers | `minimesh-daemon` DaemonSet – one proxy per node (ambient style) |
+| Pod→Pod mTLS | Unix-domain-socket relay wrapped in TLS 1.3 |
+| Pod→Service mTLS | ClusterIP traffic also routed through the relay; kube-proxy still does load-balancing |
+| Traffic interception | iptables `MINIMESH` chain in `nat/PREROUTING` (DNAT to 127.0.0.1:15001) |
+| CLI | `meshctl` talks to the daemon via a Unix-socket HTTP API |
+
+## Components
+
+| Binary | Path | Description |
+|--------|------|-------------|
+| `minimesh-daemon` | `cmd/daemon` | Node proxy agent – deployed as DaemonSet |
+| `meshctl` | `cmd/meshctl` | CLI companion |
+
+## Quick start
+
+### Build
+
+```bash
+make build          # binaries in ./bin/
+make docker-build   # Docker images
+```
+
+### Deploy on Kubernetes
+
+```bash
+kubectl apply -f deploy/daemon.yaml      # daemon DaemonSet
+kubectl apply -f deploy/examples.yaml    # example workloads
+```
+
+### Configuration
+
+The daemon reads its pod CIDR and service CIDR from environment variables (or
+flags). The defaults match microk8s; override `SVC_CIDR` for other distros
+(kubeadm: `10.96.0.0/12`, kind: `10.96.0.0/16`, GKE: `34.118.224.0/20`).
+
+| Env var | Flag | Default | Notes |
+|---|---|---|---|
+| `POD_CIDR` | `--pod-cidr` | _(auto-detect from K8s API)_ | Set explicitly to skip API lookup |
+| `SVC_CIDR` | `--svc-cidr` | `10.152.183.0/24` (microk8s) | Service ClusterIP range |
+| `NODE_NAME` | `--node-name` | _(downward API)_ | Used for pod CIDR auto-detect |
+
+### meshctl commands
+
+```bash
+meshctl status     # daemon status (node, podCIDR, svcCIDR, startTime)
+meshctl healthz    # health check
+```
+
+## mTLS details
+
+- The daemon generates a self-signed CA in memory on startup.
+- TLS 1.3 with mutual authentication is enforced on all relayed connections.
+- mTLS protects the **Proxy ↔ Relay** hop (both endpoints inside the daemon).
+  Pod→Pod and Pod→Service share the same mTLS path; cross-node end-to-end mTLS
+  is on the roadmap (requires Service discovery via EndpointSlice + a remote
+  daemon NodePort tunnel).
 # miniMesh
 
 A minimal Service Mesh implementation in Go (~1 000 lines of code), inspired by Istio's Ambient Mesh model.

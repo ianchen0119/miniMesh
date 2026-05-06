@@ -296,38 +296,7 @@ func (ca *CA) ServerTLS(b *Bundle) *tls.Config {
 
 這幾段加起來就是「兩端都用同一個 CA 簽的憑證，握手時互相驗」。生產環境會換成 SPIRE 或 cert-manager 管理憑證，但機制完全一樣。
 
-### 3.5 Magic 5：控制面怎麼運作的？
-
-控制面負責把「宣告的期望狀態」轉換成「實際生效的資源」。miniMesh 用兩個 Kubernetes controller 做示範。
-
-在 [operator/controller/controller.go](operator/controller/controller.go)，`MeshCertificateReconciler` 每次 reconcile 就用 CA 簽一張新憑證，存進 Kubernetes Secret，並設定 12 小時後再回來輪替：
-
-```go
-func (r *MeshCertificateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-    // ...
-    bundle, err := r.CA.Issue(dnsName)
-    // 存進 kubernetes.io/tls Secret
-    controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
-        secret.Data = map[string][]byte{
-            corev1.TLSCertKey:       bundle.CertPEM,
-            corev1.TLSPrivateKeyKey: bundle.KeyPEM,
-        }
-        return nil
-    })
-    // 12 小時後自動重新觸發
-    return ctrl.Result{RequeueAfter: 12 * time.Hour}, nil
-}
-```
-
-這就是控制面最小閉環的樣子：CRD 宣告 desired state → reconcile 實際資源 → 狀態寫回 CR status。
-
-### 3.6 Magic 6：可觀測怎麼接？
-
-[pkg/observability/pwru.go](pkg/observability/pwru.go) 做的事很簡單——把 Cilium 的 `pwru`（eBPF 封包追蹤工具）包起來，讓 `meshctl observe` 可以直接串流 kernel 層的封包事件到終端機。
-
-這裡有個值得記住的設計選擇：**可觀測不一定要先建 telemetry pipeline**。`pwru` 是 eBPF-based，可以在 kernel 層追蹤每個封包走過哪些 netfilter hook、哪個 function、最後去了哪，不需要應用配合，不需要 sidecar。先把關鍵路徑看見，再決定要不要接 Prometheus / Jaeger。
-
-> 延伸閱讀：Cilium pwru https://github.com/cilium/pwru
+> 控制面與可觀測性怎麼接？這個最小版本刻意把 CRD / controller / eBPF tracing 拿掉，專注在資料平面三件事：攔截、mTLS、轉發。等資料平面跑通了，再接 [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime) 做憑證輪替與 policy 下發、用 [Cilium pwru](https://github.com/cilium/pwru) 看封包走的是哪條 netfilter hook 都不遲——機制都是獨立的，可以一塊一塊加上去。
 
 ---
 
@@ -411,7 +380,7 @@ Cilium、Istio、Linkerd 的差別不在功能清單，在於它們各自優先�
 
 ## 參考來源
 
-- miniMesh 原始碼：[pkg/proxy/proxy.go](pkg/proxy/proxy.go) · [pkg/iptables/iptables.go](pkg/iptables/iptables.go) · [pkg/cert/cert.go](pkg/cert/cert.go) · [pkg/daemon/daemon.go](pkg/daemon/daemon.go) · [operator/controller/controller.go](operator/controller/controller.go)
+- miniMesh 原始碼：[pkg/proxy/proxy.go](pkg/proxy/proxy.go) · [pkg/iptables/iptables.go](pkg/iptables/iptables.go) · [pkg/cert/cert.go](pkg/cert/cert.go) · [pkg/daemon/daemon.go](pkg/daemon/daemon.go)
 - [README.md](README.md)
 - Istio Ambient Mesh 設計：https://istio.io/latest/blog/2022/introducing-ambient-mesh/
 - Cilium pwru（eBPF 封包追蹤）：https://github.com/cilium/pwru

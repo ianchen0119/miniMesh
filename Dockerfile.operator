@@ -1,8 +1,0 @@
-FROM golang:1.21-alpine AS builder
-WORKDIR /src
-COPY . .
-RUN CGO_ENABLED=0 go build -o /bin/minimesh-operator ./cmd/operator
-
-FROM alpine:3.19
-COPY --from=builder /bin/minimesh-operator /usr/local/bin/
-ENTRYPOINT ["minimesh-operator"]

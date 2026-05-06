@@ -55,34 +55,3 @@ spec:
       image: curlimages/curl:latest
       command: ["sleep", "infinity"]
   restartPolicy: Never
----
-# Example: enforce strict mTLS for all pods in the "production" namespace
-apiVersion: mesh.minimesh.io/v1alpha1
-kind: MeshPolicy
-metadata:
-  name: strict-mtls
-  namespace: production
-spec:
-  mtlsMode: STRICT
----
-# Example: permissive mTLS for a specific app
-apiVersion: mesh.minimesh.io/v1alpha1
-kind: MeshPolicy
-metadata:
-  name: permissive-frontend
-  namespace: production
-spec:
-  mtlsMode: PERMISSIVE
-  selector:
-    app: frontend
----
-# Example: request a managed certificate for the "payments" service
-apiVersion: mesh.minimesh.io/v1alpha1
-kind: MeshCertificate
-metadata:
-  name: payments-cert
-  namespace: production
-spec:
-  serviceName: payments
-  namespace: production
-  ttl: "24h"
